@@ -61,8 +61,10 @@ class SkinPage(QtWidgets.QWidget):
         theme_name = self.theme_selector.currentText()
         qss = self.themes.get(theme_name, "")
         if qss:
-            self.setStyleSheet(qss)
+            # 全局应用 QSS
+            app = QtWidgets.QApplication.instance()
+            if app:
+                app.setStyleSheet(qss)
             LogPage.log(f"[主题切换] 已应用主题: {theme_name}")
         else:
             LogPage.log(f"[主题切换] 未找到主题: {theme_name}")
-

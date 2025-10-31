@@ -15,9 +15,8 @@ class JocketUI(QtWidgets.QMainWindow):
         # 标签页
         self.config_page = WebhookConfigPage()
         self.publisher_page = WebhookPublisherPage(self.config_page)
-        self.add_tab(self.config_page, "Webhook配置")
         self.add_tab(self.publisher_page, "Webhook发布器")
-
+        self.add_tab(self.config_page, "Webhook配置")
         # 不允许关闭
         self.tab_widget.setTabsClosable(False)
 

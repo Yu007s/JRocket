@@ -3,7 +3,7 @@ import os
 
 import requests
 from PyQt5 import QtWidgets, QtCore
-from git import Repo
+from git import Repo, GitCommandError
 from ui.webhook_page.webhook_config import WebhookConfigPage
 from PyQt5 import QtWidgets, QtGui
 
@@ -17,7 +17,7 @@ class WebhookPublisherPage(QtWidgets.QWidget):
         # 获取最近 X 次 git 提交
         form_layout = QtWidgets.QHBoxLayout()
         form_layout.addWidget(QtWidgets.QLabel("获取"))
-        self.num_commits = QtWidgets.QLineEdit("5")
+        self.num_commits = QtWidgets.QLineEdit("1")
         self.num_commits.setValidator(QtGui.QIntValidator(1, 100))
         form_layout.addWidget(self.num_commits)
         form_layout.addWidget(QtWidgets.QLabel("次 git 提交"))
@@ -50,8 +50,18 @@ class WebhookPublisherPage(QtWidgets.QWidget):
         self.file_list.clear()
         tmp_dir = os.path.join(os.path.expanduser("~"), "JRocket", "tmp_repo")
 
+        tmp_dir = os.path.join(os.path.expanduser("~"), "JRocket", "tmp_repo")
         if not os.path.exists(tmp_dir):
-            Repo.clone_from(git_url, tmp_dir, branch=git_branch)
+            repo = Repo.clone_from(git_url, tmp_dir, branch=git_branch)
+        else:
+            repo = Repo(tmp_dir)
+            try:
+                origin = repo.remotes.origin
+                origin.fetch()
+                repo.git.checkout(git_branch)
+                repo.git.reset('--hard', f'origin/{git_branch}')  # 保证和远程一致
+            except GitCommandError as e:
+                QtWidgets.QMessageBox.warning(self, "Git", f"更新失败: {str(e)}")
         repo = Repo(tmp_dir)
         commits = list(repo.iter_commits(git_branch, max_count=num))
         changed_files = set()

@@ -4,6 +4,8 @@ from PyQt5 import QtWidgets
 from git import Repo
 from ui.webhook_page.webhook_config import WebhookConfigPage
 from PyQt5 import QtWidgets, QtGui
+
+
 class WebhookPublisherPage(QtWidgets.QWidget):
     def __init__(self, config_page: WebhookConfigPage):
         super().__init__()
@@ -27,9 +29,7 @@ class WebhookPublisherPage(QtWidgets.QWidget):
 
         # 底部按钮
         btn_layout = QtWidgets.QHBoxLayout()
-        self.update_git_btn = QtWidgets.QPushButton("更新当前 git 提交")
         self.push_all_btn = QtWidgets.QPushButton("推送全部 webhook")
-        btn_layout.addWidget(self.update_git_btn)
         btn_layout.addWidget(self.push_all_btn)
         layout.addLayout(btn_layout)
 
@@ -41,12 +41,12 @@ class WebhookPublisherPage(QtWidgets.QWidget):
         git_url = self.config_page.git_url.text()
         git_branch = self.config_page.git_branch.text()
         if not git_url or not git_branch:
-            QtWidgets.QMessageBox.warning(self,"警告","请先配置 Git 地址和分支")
+            QtWidgets.QMessageBox.warning(self, "警告", "请先配置 Git 地址和分支")
             return
 
         num = int(self.num_commits.text())
         self.file_list.clear()
-        tmp_dir = os.path.join(os.path.expanduser("~"), "JRocket","tmp_repo")
+        tmp_dir = os.path.join(os.path.expanduser("~"), "JRocket", "tmp_repo")
 
         if not os.path.exists(tmp_dir):
             Repo.clone_from(git_url, tmp_dir, branch=git_branch)
@@ -58,24 +58,37 @@ class WebhookPublisherPage(QtWidgets.QWidget):
 
         # 显示文件
         for f in changed_files:
-            item = QtWidgets.QListWidgetItem(f)
+            f_display = self.utf8_to_str(f)  # 转成中文显示
+            container = QtWidgets.QWidget()
+            h_lay_out = QtWidgets.QHBoxLayout(container)
+            h_lay_out.setContentsMargins(0, 0, 0, 0)
+            label = QtWidgets.QLabel(f_display)
             push_btn = QtWidgets.QPushButton("推送 webhook")
-            self.file_list.addItem(item)
-            self.file_list.setItemWidget(item, push_btn)
+            h_lay_out.addWidget(label)
+            h_lay_out.addWidget(push_btn)
+            list_item = QtWidgets.QListWidgetItem(self.file_list)
+            list_item.setSizeHint(container.sizeHint())
+            self.file_list.addItem(list_item)
+            self.file_list.setItemWidget(list_item, container)
+
             push_btn.clicked.connect(lambda _, fp=f: self.push_webhook(fp))
+
+    def utf8_to_str(self, s):
+        # 将 \xxx 转成中文
+        return bytes(s, 'latin1').decode('unicode_escape').encode('latin1').decode('utf-8')
 
     def push_webhook(self, file_path):
         for row in range(self.config_page.table.rowCount()):
-            path_item = self.config_page.table.item(row,0)
-            webhook_item = self.config_page.table.item(row,1)
+            path_item = self.config_page.table.item(row, 0)
+            webhook_item = self.config_page.table.item(row, 1)
             if path_item and webhook_item and path_item.text() == file_path:
-                QtWidgets.QMessageBox.information(self,"Webhook","已推送: "+file_path)
+                QtWidgets.QMessageBox.information(self, "Webhook", "已推送: " + file_path)
                 break
 
     def push_all_webhooks(self):
         for row in range(self.config_page.table.rowCount()):
-            path_item = self.config_page.table.item(row,0)
-            webhook_item = self.config_page.table.item(row,1)
+            path_item = self.config_page.table.item(row, 0)
+            webhook_item = self.config_page.table.item(row, 1)
             if path_item and webhook_item:
                 print(f"推送 {path_item.text()} -> {webhook_item.text()}")
-        QtWidgets.QMessageBox.information(self,"Webhook","已推送全部 webhook")
+        QtWidgets.QMessageBox.information(self, "Webhook", "已推送全部 webhook")

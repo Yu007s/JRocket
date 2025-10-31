@@ -3,6 +3,7 @@ import os
 import json
 from PyQt5 import QtWidgets
 
+
 class WebhookConfigPage(QtWidgets.QWidget):
     def __init__(self):
         super().__init__()

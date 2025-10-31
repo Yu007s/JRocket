@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 import os
 import requests
 from PyQt5 import QtWidgets, QtCore, QtGui
@@ -36,6 +37,16 @@ class WebhookPublisherPage(QtWidgets.QWidget):
         self.load_btn.clicked.connect(self.load_changed_files)
         self.push_all_btn.clicked.connect(self.push_all_webhooks)
 
+        # 监听配置切换
+        self.config_page.config_selector.currentTextChanged.connect(self.on_config_changed)
+
+        # 初始加载
+        self.on_config_changed(self.config_page.config_selector.currentText())
+
+    def on_config_changed(self, config_name):
+        """配置切换时清空文件列表"""
+        self.file_list.clear()
+
     def load_changed_files(self):
         git_url = self.config_page.git_url.text()
         git_branch = self.config_page.git_branch.text()
@@ -47,35 +58,26 @@ class WebhookPublisherPage(QtWidgets.QWidget):
         self.file_list.clear()
         tmp_dir = os.path.join(os.path.expanduser("~"), "JRocket", "tmp_repo")
 
-        print(f"[LOG] Git 地址: {git_url}, 分支: {git_branch}, 拉取提交数: {num}")
-
         if not os.path.exists(tmp_dir):
-            print(f"[LOG] 临时目录不存在，克隆仓库到 {tmp_dir}")
             repo = Repo.clone_from(git_url, tmp_dir, branch=git_branch)
         else:
-            print(f"[LOG] 临时目录已存在，打开仓库并拉取最新")
             repo = Repo(tmp_dir)
             try:
                 origin = repo.remotes.origin
                 origin.fetch()
                 repo.git.checkout(git_branch)
                 repo.git.reset('--hard', f'origin/{git_branch}')
-                print(f"[LOG] 仓库更新成功")
             except GitCommandError as e:
-                print(f"[ERROR] Git 更新失败: {str(e)}")
                 QtWidgets.QMessageBox.warning(self, "Git", f"更新失败: {str(e)}")
-        repo = Repo(tmp_dir)
+                return
+
         commits = list(repo.iter_commits(git_branch, max_count=num))
         changed_files = set()
         for commit in commits:
-            print(f"[LOG] 提交: {commit.hexsha}, 作者: {commit.author}, 信息: {commit.message.strip()}")
             changed_files.update(commit.stats.files.keys())
 
-        print(f"[LOG] 获取到变动文件: {changed_files}")
-
-        # 显示文件
+        # 显示文件，只展示在当前配置中有 webhook 的文件
         for f in changed_files:
-            # 检查 f 是否在配置表中有 webhook
             matched = False
             for row in range(self.config_page.table.rowCount()):
                 path_item = self.config_page.table.item(row, 0)
@@ -83,55 +85,47 @@ class WebhookPublisherPage(QtWidgets.QWidget):
                 if path_item and webhook_item and path_item.text() == f:
                     matched = True
                     break
-            f_display = self.utf8_to_str(f)
-            container = QtWidgets.QWidget()
-            h_lay_out = QtWidgets.QHBoxLayout(container)
-            h_lay_out.setContentsMargins(0, 0, 0, 0)
-            label = QtWidgets.QLabel(f_display)
-            label.setTextInteractionFlags(QtCore.Qt.TextSelectableByMouse)
-            h_lay_out.addWidget(label)
+            if not matched:
+                continue
 
-            # 只有 matched=True 才加按钮
-            if matched:
-                push_btn = QtWidgets.QPushButton("推送 webhook")
-                h_lay_out.addWidget(push_btn)
-                push_btn.clicked.connect(lambda _, fp=f: self.push_webhook(fp))
+            container = QtWidgets.QWidget()
+            hlayout = QtWidgets.QHBoxLayout(container)
+            hlayout.setContentsMargins(0, 0, 0, 0)
+            label = QtWidgets.QLabel(f)
+            label.setTextInteractionFlags(QtCore.Qt.TextSelectableByMouse)
+            hlayout.addWidget(label)
+
+            push_btn = QtWidgets.QPushButton("推送 webhook")
+            hlayout.addWidget(push_btn)
+            push_btn.clicked.connect(lambda _, fp=f: self.push_webhook(fp))
 
             list_item = QtWidgets.QListWidgetItem(self.file_list)
             list_item.setSizeHint(container.sizeHint())
             self.file_list.addItem(list_item)
             self.file_list.setItemWidget(list_item, container)
 
-    def utf8_to_str(self, s):
-        # 将 \xxx 转成中文
-        return bytes(s, 'latin1').decode('unicode_escape').encode('latin1').decode('utf-8')
-
     def push_webhook(self, file_path):
-        print(f"[LOG] 开始推送单文件 webhook: {file_path}")
+        """单文件推送"""
         for row in range(self.config_page.table.rowCount()):
             path_item = self.config_page.table.item(row, 0)
             webhook_item = self.config_page.table.item(row, 1)
             if path_item and webhook_item and path_item.text() == file_path:
                 url = webhook_item.text()
-                print(f"[LOG] 找到 webhook URL: {url}")
                 try:
                     response = requests.post(url, json={"file": file_path})
                     if 200 <= response.status_code < 300:
-                        print(f"[LOG] 推送成功: {file_path} -> {url} (状态码 {response.status_code})")
                         QtWidgets.QMessageBox.information(
                             self,
                             "Webhook",
                             f"已推送成功: {file_path} (状态码 {response.status_code})"
                         )
                     else:
-                        print(f"[ERROR] 推送失败 ({response.status_code}): {file_path} -> {url}")
                         QtWidgets.QMessageBox.warning(
                             self,
                             "Webhook",
                             f"推送失败 ({response.status_code}): {file_path}"
                         )
                 except Exception as e:
-                    print(f"[EXCEPTION] 推送异常: {file_path} -> {url}, {str(e)}")
                     QtWidgets.QMessageBox.critical(
                         self,
                         "Webhook",
@@ -140,23 +134,32 @@ class WebhookPublisherPage(QtWidgets.QWidget):
                 break
 
     def push_all_webhooks(self):
-        print(f"[LOG] 开始推送列表中全部 webhook 文件")
+        """遍历列表中显示的文件，推送对应 webhook"""
         for index in range(self.file_list.count()):
             list_item = self.file_list.item(index)
-            file_path = list_item.text()  # 获取列表中显示的文件名
+            container = self.file_list.itemWidget(list_item)
+            if not container:
+                continue
+            # 文件名在 label 中
+            label = container.findChild(QtWidgets.QLabel)
+            if not label:
+                continue
+            file_path = label.text()
+
+            # 查找对应 webhook
             for row in range(self.config_page.table.rowCount()):
                 path_item = self.config_page.table.item(row, 0)
                 webhook_item = self.config_page.table.item(row, 1)
                 if path_item and webhook_item and path_item.text() == file_path:
                     url = webhook_item.text()
-                    print(f"[LOG] 推送 {file_path} -> {url}")
                     try:
                         response = requests.post(url, json={"file": file_path})
                         if 200 <= response.status_code < 300:
-                            print(f"[LOG] 推送成功: {file_path} -> {url} (状态码 {response.status_code})")
+                            print(f"已推送成功: {file_path} -> {url} (状态码 {response.status_code})")
                         else:
-                            print(f"[ERROR] 推送失败 ({response.status_code}): {file_path} -> {url}")
+                            print(f"推送失败 ({response.status_code}): {file_path} -> {url}")
                     except Exception as e:
-                        print(f"[EXCEPTION] 推送异常: {file_path} -> {url}, {str(e)}")
+                        print(f"推送异常: {file_path} -> {url}\n{str(e)}")
                     break
+
         QtWidgets.QMessageBox.information(self, "Webhook", "已推送列表中全部文件的 webhook")

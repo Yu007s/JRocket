@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
 from PyQt5 import QtWidgets
-from ui.webhook_page.webhook_config import WebhookConfigPage
-from ui.webhook_page.webhook_publisher import WebhookPublisherPage
+from ui.webhook_page.WebhookConfig import WebhookConfigPage
+from ui.webhook_page.WebhookPublisher import WebhookPublisherPage
+from ui.log_out.LogPage import LogPage
 
 
-class JocketUI(QtWidgets.QMainWindow):
+class JRocketUI(QtWidgets.QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("JocketUI")
+        self.setWindowTitle("JRocketUI")
         self.resize(1000, 700)
         self.tab_widget = QtWidgets.QTabWidget()
         self.setCentralWidget(self.tab_widget)
@@ -15,8 +16,10 @@ class JocketUI(QtWidgets.QMainWindow):
         # 标签页
         self.config_page = WebhookConfigPage()
         self.publisher_page = WebhookPublisherPage(self.config_page)
+        self.log_page = LogPage()
         self.add_tab(self.publisher_page, "Webhook发布器")
         self.add_tab(self.config_page, "Webhook配置")
+        self.add_tab(self.log_page, "软件日志")
         # 不允许关闭
         self.tab_widget.setTabsClosable(False)
 
@@ -28,6 +31,6 @@ if __name__ == '__main__':
     import sys
 
     app = QtWidgets.QApplication(sys.argv)
-    win = JocketUI()
+    win = JRocketUI()
     win.show()
     sys.exit(app.exec_())

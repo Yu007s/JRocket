@@ -130,9 +130,24 @@ class WebhookPublisherPage(QtWidgets.QWidget):
                 break
 
     def push_all_webhooks(self):
-        for row in range(self.config_page.table.rowCount()):
-            path_item = self.config_page.table.item(row, 0)
-            webhook_item = self.config_page.table.item(row, 1)
-            if path_item and webhook_item:
-                print(f"推送 {path_item.text()} -> {webhook_item.text()}")
-        QtWidgets.QMessageBox.information(self, "Webhook", "已推送全部 webhook")
+        for index in range(self.file_list.count()):
+            list_item = self.file_list.item(index)
+            file_path = list_item.text()  # 获取列表中显示的文件名
+            # 查找对应 webhook
+            for row in range(self.config_page.table.rowCount()):
+                path_item = self.config_page.table.item(row, 0)
+                webhook_item = self.config_page.table.item(row, 1)
+                if path_item and webhook_item and path_item.text() == file_path:
+                    url = webhook_item.text()
+                    try:
+                        response = requests.post(url, json={"file": file_path})
+                        if 200 <= response.status_code < 300:
+                            print(f"已推送成功: {file_path} -> {url} (状态码 {response.status_code})")
+                        else:
+                            print(f"推送失败 ({response.status_code}): {file_path} -> {url}")
+                    except Exception as e:
+                        print(f"推送异常: {file_path} -> {url}\n{str(e)}")
+                    break
+
+        QtWidgets.QMessageBox.information(self, "Webhook", "已推送列表中全部文件的 webhook")
+

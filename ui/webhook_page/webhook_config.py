@@ -128,14 +128,22 @@ class WebhookConfigPage(QtWidgets.QWidget):
         QtWidgets.QMessageBox.information(self, "保存", f"配置已保存到 {path}")
 
     def create_new_config(self):
-        name, ok = QtWidgets.QInputDialog.getText(self, "新建配置", "请输入配置名(含.json):")
+        name, ok = QtWidgets.QInputDialog.getText(self, "新建配置", "请输入配置名:")
         if ok and name:
+            # 确保后缀为 .json
+            if not name.lower().endswith(".json"):
+                name += ".json"
+
             path = os.path.join(self.config_dir, name)
             if os.path.exists(path):
                 QtWidgets.QMessageBox.warning(self, "提示", "该配置已存在")
                 return
+
+            # 创建空配置文件
             with open(path, 'w', encoding='utf-8') as f:
-                json.dump({}, f)
+                json.dump({}, f, ensure_ascii=False, indent=4)
+
+            # 更新下拉框并切换到新配置
             self.config_selector.addItem(name)
             self.config_selector.setCurrentText(name)
 

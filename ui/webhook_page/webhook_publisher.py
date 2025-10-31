@@ -105,61 +105,75 @@ class WebhookPublisherPage(QtWidgets.QWidget):
             self.file_list.setItemWidget(list_item, container)
 
     def push_webhook(self, file_path):
-        """单文件推送"""
+        """单文件推送，优化为字典查找"""
+        # 构建字典
+        path_to_webhook = {}
         for row in range(self.config_page.table.rowCount()):
             path_item = self.config_page.table.item(row, 0)
             webhook_item = self.config_page.table.item(row, 1)
-            if path_item and webhook_item and path_item.text() == file_path:
-                url = webhook_item.text()
-                try:
-                    response = requests.post(url, json={"file": file_path})
-                    if 200 <= response.status_code < 300:
-                        QtWidgets.QMessageBox.information(
-                            self,
-                            "Webhook",
-                            f"已推送成功: {file_path} (状态码 {response.status_code})"
-                        )
-                    else:
-                        QtWidgets.QMessageBox.warning(
-                            self,
-                            "Webhook",
-                            f"推送失败 ({response.status_code}): {file_path}"
-                        )
-                except Exception as e:
-                    QtWidgets.QMessageBox.critical(
-                        self,
-                        "Webhook",
-                        f"推送异常: {file_path}\n{str(e)}"
-                    )
-                break
+            if path_item and webhook_item:
+                path_to_webhook[path_item.text()] = webhook_item.text()
+
+        url = path_to_webhook.get(file_path)
+        if not url:
+            QtWidgets.QMessageBox.warning(self, "Webhook", f"未找到对应 webhook: {file_path}")
+            return
+
+        try:
+            response = requests.post(url, json={"file": file_path})
+            if 200 <= response.status_code < 300:
+                QtWidgets.QMessageBox.information(
+                    self,
+                    "Webhook",
+                    f"已推送成功: {file_path} (状态码 {response.status_code})"
+                )
+            else:
+                QtWidgets.QMessageBox.warning(
+                    self,
+                    "Webhook",
+                    f"推送失败 ({response.status_code}): {file_path}"
+                )
+        except Exception as e:
+            QtWidgets.QMessageBox.critical(
+                self,
+                "Webhook",
+                f"推送异常: {file_path}\n{str(e)}"
+            )
 
     def push_all_webhooks(self):
-        """遍历列表中显示的文件，推送对应 webhook"""
+        """遍历列表中显示的文件，推送对应 webhook，优化为字典匹配"""
+        # 先把表格内容构建成字典
+        path_to_webhook = {}
+        for row in range(self.config_page.table.rowCount()):
+            path_item = self.config_page.table.item(row, 0)
+            webhook_item = self.config_page.table.item(row, 1)
+            if path_item and webhook_item:
+                path_to_webhook[path_item.text()] = webhook_item.text()
+
+        # 遍历文件列表
         for index in range(self.file_list.count()):
             list_item = self.file_list.item(index)
             container = self.file_list.itemWidget(list_item)
             if not container:
                 continue
-            # 文件名在 label 中
             label = container.findChild(QtWidgets.QLabel)
             if not label:
                 continue
             file_path = label.text()
 
-            # 查找对应 webhook
-            for row in range(self.config_page.table.rowCount()):
-                path_item = self.config_page.table.item(row, 0)
-                webhook_item = self.config_page.table.item(row, 1)
-                if path_item and webhook_item and path_item.text() == file_path:
-                    url = webhook_item.text()
-                    try:
-                        response = requests.post(url, json={"file": file_path})
-                        if 200 <= response.status_code < 300:
-                            print(f"已推送成功: {file_path} -> {url} (状态码 {response.status_code})")
-                        else:
-                            print(f"推送失败 ({response.status_code}): {file_path} -> {url}")
-                    except Exception as e:
-                        print(f"推送异常: {file_path} -> {url}\n{str(e)}")
-                    break
+            # 直接用字典查找 webhook
+            url = path_to_webhook.get(file_path)
+            if not url:
+                continue
+
+            try:
+                response = requests.post(url, json={"file": file_path})
+                if 200 <= response.status_code < 300:
+                    print(f"已推送成功: {file_path} -> {url} (状态码 {response.status_code})")
+                else:
+                    print(f"推送失败 ({response.status_code}): {file_path} -> {url}")
+            except Exception as e:
+                print(f"推送异常: {file_path} -> {url}\n{str(e)}")
 
         QtWidgets.QMessageBox.information(self, "Webhook", "已推送列表中全部文件的 webhook")
+

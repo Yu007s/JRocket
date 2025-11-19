@@ -4,8 +4,8 @@ from ui.skin.SkinPage import SkinPage
 from ui.webhook_page.WebhookConfig import WebhookConfigPage
 from ui.webhook_page.WebhookPublisher import WebhookPublisherPage
 from ui.log_out.LogPage import LogPage
-from ui.docker.DockerUploadPage import DockerUploadPage
-from ui.docker.DockerInfo import DockerInfo
+from ui.dockerUtil.DockerUploadPage import DockerUploadPage
+from ui.dockerUtil.DockerInfo import DockerInfo
 
 class JRocketUI(QtWidgets.QMainWindow):
     def __init__(self):

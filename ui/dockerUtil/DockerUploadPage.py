@@ -1,4 +1,4 @@
-# ui/docker/DockerUploadPage.py
+# ui/dockerUtil/DockerUploadPage.py
 from PyQt5 import QtWidgets
 
 class DockerUploadPage(QtWidgets.QWidget):

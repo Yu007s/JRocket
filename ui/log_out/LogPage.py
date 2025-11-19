@@ -17,6 +17,7 @@ class LogPage(QtWidgets.QWidget):
 
     @staticmethod
     def log(msg: str):
+        print(str)
         """全局静态日志方法"""
         if LogPage.log_widget:
             LogPage.log_widget.text_edit.append(msg)

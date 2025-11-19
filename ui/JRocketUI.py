@@ -4,7 +4,8 @@ from ui.skin.SkinPage import SkinPage
 from ui.webhook_page.WebhookConfig import WebhookConfigPage
 from ui.webhook_page.WebhookPublisher import WebhookPublisherPage
 from ui.log_out.LogPage import LogPage
-
+from ui.docker.DockerUploadPage import DockerUploadPage
+from ui.docker.DockerInfo import DockerInfo
 
 class JRocketUI(QtWidgets.QMainWindow):
     def __init__(self):
@@ -15,15 +16,19 @@ class JRocketUI(QtWidgets.QMainWindow):
         self.setCentralWidget(self.tab_widget)
 
         # 标签页
-        self.config_page = WebhookConfigPage()
-        self.publisher_page = WebhookPublisherPage(self.config_page)
-        self.log_page = LogPage()
-        self.skin_page = SkinPage()  # 直接使用 SkinPage 内部逻辑
+        self.WebhookConfigPage = WebhookConfigPage()
+        self.WebhookPublisherPage = WebhookPublisherPage(self.WebhookConfigPage)
+        self.LogPage = LogPage()
+        self.SkinPage = SkinPage()
+        self.DockerUploadPage = DockerUploadPage()
+        self.DockerInfo = DockerInfo()
 
-        self.add_tab(self.publisher_page, "Webhook发布器")
-        self.add_tab(self.config_page, "Webhook配置")
-        self.add_tab(self.log_page, "软件日志")
-        self.add_tab(self.skin_page, "换皮")
+        self.add_tab(self.WebhookConfigPage, "Webhook发布器")
+        self.add_tab(self.WebhookPublisherPage, "Webhook配置")
+        self.add_tab(self.DockerInfo, "docker 信息查询")
+        self.add_tab(self.DockerUploadPage, "docker镜像上传")
+        self.add_tab(self.LogPage, "软件日志")
+        self.add_tab(self.SkinPage, "换皮")
 
         self.tab_widget.setTabsClosable(False)
 

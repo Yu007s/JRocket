@@ -41,6 +41,7 @@ class WebhookConfigPage(QtWidgets.QWidget):
         layout.addWidget(self.table_label)
 
         self.table = QtWidgets.QTableWidget(0, 2)
+        self.table.setColumnWidth(0, 400)
         self.table.setHorizontalHeaderLabels(['文件路径', 'Webhook URL'])
         self.table.horizontalHeader().setStretchLastSection(True)
         layout.addWidget(self.table)

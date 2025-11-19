@@ -1,5 +1,6 @@
 # ui/dockerUtil/DockerUploadPage.py
 import subprocess
+import os
 from PyQt5 import QtWidgets, QtGui, QtCore
 
 
@@ -19,14 +20,22 @@ class DockerUploadPage(QtWidgets.QWidget):
 
         layout.addWidget(self.status_label)
 
-        # 下面是你的 UI
+        # “启动 Docker” 按钮（默认隐藏）
+        self.start_button = QtWidgets.QPushButton("启动 Docker Desktop")
+        self.start_button.setVisible(False)
+        self.start_button.clicked.connect(self.start_docker)
+        layout.addWidget(self.start_button)
+
+        # 下面是你的上传界面内容
         layout.addWidget(QtWidgets.QLabel("这里是 Docker 镜像上传界面"))
 
         # 自动检测
         QtCore.QTimer.singleShot(200, self.check_docker_status)
 
+    # ---------------------------
+    # 检查 Docker 状态
+    # ---------------------------
     def check_docker_status(self):
-        """检测 docker 是否启动（包括 daemon 错误）"""
         try:
             process = subprocess.Popen(
                 ["docker", "info"],
@@ -36,7 +45,7 @@ class DockerUploadPage(QtWidgets.QWidget):
             )
             stdout, stderr = process.communicate(timeout=2)
 
-            # 出错关键字
+            # 出错关键字（docker engine 未启动）
             error_keywords = [
                 "ERROR",
                 "Error response from daemon",
@@ -44,12 +53,10 @@ class DockerUploadPage(QtWidgets.QWidget):
                 "Bad response from Docker engine"
             ]
 
-            # stdout 或 stderr 包含错误即判定为未启动
             if any(err in stdout or err in stderr for err in error_keywords):
                 self.set_status_error("Docker 未启动")
                 return
 
-            # 判断 Server Version 是否存在
             if "Server Version" in stdout:
                 self.set_status_ok("Docker 已启动")
             else:
@@ -58,10 +65,27 @@ class DockerUploadPage(QtWidgets.QWidget):
         except Exception:
             self.set_status_error("Docker 未启动")
 
+    # ---------------------------
+    # UI 展示：Docker 已启动
+    # ---------------------------
     def set_status_ok(self, text):
         self.status_label.setStyleSheet("color: green;")
         self.status_label.setText(text)
+        self.start_button.setVisible(False)
 
+    # ---------------------------
+    # UI 展示：Docker 未启动
+    # ---------------------------
     def set_status_error(self, text):
         self.status_label.setStyleSheet("color: red;")
         self.status_label.setText(text)
+        self.start_button.setVisible(True)
+
+    # ---------------------------
+    # 点击按钮启动 Docker Desktop
+    # ---------------------------
+    def start_docker(self):
+        # Mac 启动 Docker Desktop
+        os.system("open /Applications/Docker.app")
+        # 延迟几秒后自动重新检测
+        QtCore.QTimer.singleShot(5000, self.check_docker_status)

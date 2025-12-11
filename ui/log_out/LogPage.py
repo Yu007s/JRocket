@@ -17,9 +17,14 @@ class LogPage(QtWidgets.QWidget):
 
     @staticmethod
     def log(msg: str):
-        print(str)
+        # 同时打印到控制台并输出到日志窗口
+        try:
+            print(msg, flush=True)
+        except Exception:
+            pass
         """全局静态日志方法"""
         if LogPage.log_widget:
             LogPage.log_widget.text_edit.append(msg)
         else:
-            print("[LogPage未初始化] ", msg)
+            # 当日志窗口未初始化时，已在控制台打印
+            pass

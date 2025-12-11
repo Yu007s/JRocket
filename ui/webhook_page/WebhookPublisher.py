@@ -7,11 +7,76 @@ from ui.webhook_page.WebhookConfig import WebhookConfigPage
 from ui.log_out.LogPage import LogPage
 
 
+class WebhookWorkerSignals(QtCore.QObject):
+    finished = QtCore.pyqtSignal(str, bool, str)  # file_path, success, status_text
+
+
+class WebhookWorker(QtCore.QRunnable):
+    def __init__(self, file_path: str, url: str, timeout: int = 10):
+        super().__init__()
+        self.file_path = file_path
+        self.url = url
+        self.timeout = timeout
+        self.signals = WebhookWorkerSignals()
+
+    def run(self):
+        try:
+            # 明确不走任何代理：忽略环境变量中的代理设置
+            session = requests.Session()
+            session.trust_env = False
+            response = session.post(self.url, json={"file": self.file_path}, timeout=self.timeout)
+            if 200 <= response.status_code < 300:
+                self.signals.finished.emit(self.file_path, True, f"成功 ✅ (状态码 {response.status_code})")
+            else:
+                # 尝试拿到服务端返回的报错信息（优先 JSON，其次文本），并做长度限制避免刷屏
+                error_detail = ""
+                try:
+                    # 优先 JSON（常见报错结构包含 message/error）
+                    data = response.json()
+                    if isinstance(data, dict):
+                        # 常见字段兜底拼接
+                        msg = data.get("message") or data.get("error") or data.get("msg") or ""
+                        if msg:
+                            error_detail = str(msg)
+                        else:
+                            error_detail = str(data)
+                    else:
+                        error_detail = str(data)
+                except Exception:
+                    try:
+                        error_detail = response.text or ""
+                    except Exception:
+                        error_detail = ""
+
+                if error_detail:
+                    # 截断过长文本
+                    max_len = 2000
+                    if len(error_detail) > max_len:
+                        error_detail = error_detail[:max_len] + " …(已截断)"
+                    self.signals.finished.emit(
+                        self.file_path,
+                        False,
+                        f"失败 ❌ (状态码 {response.status_code}) 错误: {error_detail}"
+                    )
+                else:
+                    self.signals.finished.emit(
+                        self.file_path,
+                        False,
+                        f"失败 ❌ (状态码 {response.status_code})"
+                    )
+        except Exception as e:
+            self.signals.finished.emit(self.file_path, False, f"异常 ❌: {str(e)}")
+
+
 class WebhookPublisherPage(QtWidgets.QWidget):
     def __init__(self, config_page: WebhookConfigPage):
         super().__init__()
         self.config_page = config_page
         layout = QtWidgets.QVBoxLayout(self)
+
+        # 行组件缓存: file_path -> {label, button, status}
+        self.row_widgets = {}
+        self.thread_pool = QtCore.QThreadPool.globalInstance()
 
         # 获取最近 X 次 git 提交
         form_layout = QtWidgets.QHBoxLayout()
@@ -60,6 +125,7 @@ class WebhookPublisherPage(QtWidgets.QWidget):
         LogPage.log(f"[加载变动] 仓库: {git_url} 分支: {git_branch} 最近提交数: {num}")
 
         self.file_list.clear()
+        self.row_widgets.clear()
         tmp_dir = os.path.join(os.path.expanduser("~"), "JRocket", "tmp_repo")
 
         try:
@@ -108,10 +174,22 @@ class WebhookPublisherPage(QtWidgets.QWidget):
                 hlayout.addWidget(push_btn)
                 push_btn.clicked.connect(lambda _, fp=f: self.push_webhook(fp))
 
+                status_label = QtWidgets.QLabel("")
+                status_label.setMinimumWidth(140)
+                status_label.setStyleSheet("color: #888;")
+                hlayout.addWidget(status_label)
+
                 list_item = QtWidgets.QListWidgetItem(self.file_list)
                 list_item.setSizeHint(container.sizeHint())
                 self.file_list.addItem(list_item)
                 self.file_list.setItemWidget(list_item, container)
+
+                # 记录该行组件
+                self.row_widgets[f] = {
+                    "label": label,
+                    "button": push_btn,
+                    "status": status_label,
+                }
             else:
                 LogPage.log(f"[未配置 webhook] 跳过文件: {f}")
 
@@ -128,17 +206,35 @@ class WebhookPublisherPage(QtWidgets.QWidget):
 
         LogPage.log(f"[推送开始] {file_path} -> {url}")
 
-        try:
-            response = requests.post(url, json={"file": file_path})
-            if 200 <= response.status_code < 300:
-                LogPage.log(f"[推送成功] {file_path} (状态码 {response.status_code})")
-            else:
-                LogPage.log(f"[推送失败] {file_path} (状态码 {response.status_code})")
-        except Exception as e:
-            LogPage.log(f"[推送异常] {file_path}\n{str(e)}")
+        # 更新行 UI 状态
+        row = self.row_widgets.get(file_path)
+        if row:
+            row["button"].setEnabled(False)
+            row["status"].setText("推送中…")
+            row["status"].setStyleSheet("color: #888;")
+
+        worker = WebhookWorker(file_path, url)
+        worker.signals.finished.connect(self.on_webhook_finished)
+        self.thread_pool.start(worker)
+
+    @QtCore.pyqtSlot(str, bool, str)
+    def on_webhook_finished(self, file_path: str, success: bool, status_text: str):
+        # 日志
+        if success:
+            LogPage.log(f"[推送成功] {file_path} {status_text}")
+        else:
+            LogPage.log(f"[推送失败] {file_path} {status_text}")
+
+        # 更新对应行提示
+        row = self.row_widgets.get(file_path)
+        if row:
+            row["button"].setEnabled(True)
+            color = "#16a34a" if success else "#dc2626"
+            row["status"].setStyleSheet(f"color: {color};")
+            row["status"].setText(status_text)
 
     def push_all_webhooks(self):
-        LogPage.log("[批量推送] 开始执行")
+        LogPage.log("[批量推送] 开始执行 (并发)")
 
         for index in range(self.file_list.count()):
             item_widget = self.file_list.itemWidget(self.file_list.item(index))
@@ -147,5 +243,5 @@ class WebhookPublisherPage(QtWidgets.QWidget):
                 if label:
                     self.push_webhook(label.text())
 
-        QtWidgets.QMessageBox.information(self, "Webhook", "已推送全部文件")
-        LogPage.log("[批量推送] 已完成 ✅")
+        QtWidgets.QMessageBox.information(self, "Webhook", "已开始并发推送，结果将在每一行显示")
+        LogPage.log("[批量推送] 任务已全部提交 ✅")

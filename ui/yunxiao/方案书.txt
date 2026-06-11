@@ -1,3 +1,12 @@
+我需要在JRocket（写在/Users/devjys/Desktop/WorkSpaces/JRocket/ui/yunxiao 目录下）上新增一个功能
+1.获取我本地最新提交的代码 (可使用语句已经在下面了，可做参考)
+2.通过这些代码仓库找到我云效上的流水线
+3.通过openapi执行流水线 (可使用语句已经在下面了，可做参考)
+4.获取我流水线的执行结果推送上去的镜像地址
+5.另外安全起见下面的 YUNXIAO_TOKEN 是失效的
+
+
+
 
 export YUNXIAO_TOKEN='pt-FA9pL1vDjnSpezi0kXZylpZ3_1fbc2d4b-3cf2-40ab-9424-78e5fa98bce6'
 

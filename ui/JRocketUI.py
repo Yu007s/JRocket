@@ -6,6 +6,7 @@ from ui.webhook_page.WebhookPublisher import WebhookPublisherPage
 from ui.log_out.LogPage import LogPage
 from ui.dockerUtil.DockerUploadPage import DockerUploadPage
 from ui.dockerUtil.DockerInfo import DockerInfo
+from ui.yunxiao.YunxiaoPage import YunxiaoPage
 
 class JRocketUI(QtWidgets.QMainWindow):
     def __init__(self):
@@ -22,9 +23,11 @@ class JRocketUI(QtWidgets.QMainWindow):
         self.SkinPage = SkinPage()
         self.DockerUploadPage = DockerUploadPage()
         self.DockerInfo = DockerInfo()
+        self.YunxiaoPage = YunxiaoPage()
 
         self.add_tab(self.WebhookConfigPage, "Webhook发布器")
         self.add_tab(self.WebhookPublisherPage, "Webhook配置")
+        self.add_tab(self.YunxiaoPage, "云效流水线")
         self.add_tab(self.DockerInfo, "docker 信息查询")
         self.add_tab(self.DockerUploadPage, "docker镜像上传")
         self.add_tab(self.LogPage, "软件日志")

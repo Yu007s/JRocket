@@ -1,0 +1,41 @@
+
+export YUNXIAO_TOKEN='pt-FA9pL1vDjnSpezi0kXZylpZ3_1fbc2d4b-3cf2-40ab-9424-78e5fa98bce6'
+
+#获取代码仓库和流水线的映射关系
+
+# 获取最新提交代码及分支
+me="宇盛"
+since="2026-06-11 00:00"
+roots=(
+  "/Users/devjys/Desktop/WorkSpaces/sovell/sovell15~20"
+  "/Users/devjys/Desktop/WorkSpaces/sovell/sovell11~14"
+  "/Users/devjys/Desktop/WorkSpaces/sovell/sovell21~"
+)
+
+for root in "${roots[@]}"; do
+  find "$root" -maxdepth 2 -type d -name .git 2>/dev/null \
+  | while read -r gitdir; do
+      repo="${gitdir%/.git}"
+      repo_name="$(basename "$repo")"
+      workspace="$(basename "$(dirname "$repo")")"
+      remote_url="$(git -C "$repo" remote get-url origin 2>/dev/null || echo "")"
+
+      git -C "$repo" log --all \
+        --since="$since" \
+        --author="$me" \
+        --pretty=format:"%ci  $workspace  $repo_name  $remote_url %h  %an %s" \
+        2>/dev/null
+      echo
+    done
+done \
+| awk 'NF' \
+| sort -r \
+| head -n 50
+
+
+# 执行CI
+curl -X POST \
+  "https://sovell-cn-shanghai.devops.aliyuncs.com/oapi/v1/flow/pipelines/1397922/runs" \
+  -H "Content-Type: application/json" \
+  -H "x-yunxiao-token: ${YUNXIAO_TOKEN}" \
+  -d '{"params":"{\"runningBranchs\":{\"https://sovell-cn-shanghai.devops.aliyuncs.com/codeup/intell-menu/sovell-demeter.git\":\"stable-v5.0.15\"},\"comment\":\"run stable-v5.0.15\"}"}'

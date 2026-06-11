@@ -1,0 +1,55 @@
+{
+  "log": {
+    "loglevel": "warning"
+  },
+  "inbounds": [
+    {
+      "port": 1080,
+      "protocol": "vless",
+      "settings": {
+        "clients": [
+          {
+            "id": "8aa5d931-5ffa-1af6-a647-2b9f732c7af8",
+            "level": 0,
+            "email": "yjjwnwmzzjc@gmail.com"
+          }
+        ],
+        "decryption": "none",
+        "fallbacks": [
+          {
+            "dest": "/dev/shm/default.sock",
+            "xver": 1
+          },
+          {
+            "alpn": "h2",
+            "dest": "/dev/shm/h2c.sock",
+            "xver": 1
+          }
+        ]
+      },
+      "streamSettings": {
+        "network": "tcp",
+        "security": "tls",
+        "tlsSettings": {
+          "alpn": [
+            "h2",
+            "http/1.1"
+          ],
+          "certificates": [
+            {
+              "certificateFile": "/home/v2ray-linux-64/v2ray.crt",
+              "keyFile": "/home/v2ray-linux-64/v2ray.key"
+            }
+          ]
+        }
+      }
+    }
+
+
+  ],
+  "outbounds": [
+    {
+      "protocol": "freedom"
+    }
+  ]
+}

@@ -3,6 +3,7 @@ import json
 import os
 import re
 import subprocess
+import time
 from datetime import datetime
 from urllib.parse import urlparse
 
@@ -20,6 +21,8 @@ DEFAULT_ROOTS = [
     "/Users/devjys/Desktop/WorkSpaces/sovell/sovell11~14",
     "/Users/devjys/Desktop/WorkSpaces/sovell/sovell21~",
 ]
+IMAGE_LOG_POLL_INTERVAL_SECONDS = 30
+IMAGE_LOG_MAX_POLLS = 60
 
 
 def run_git(repo_path, args, timeout=8):
@@ -501,6 +504,7 @@ def collect_acr_job_ids(payload):
 class YunxiaoSignals(QtCore.QObject):
     scan_finished = QtCore.pyqtSignal(list, str)
     run_finished = QtCore.pyqtSignal(int, int, bool, str, list, str)
+    images_updated = QtCore.pyqtSignal(int, int, str, str, str)
     mappings_finished = QtCore.pyqtSignal(list, str)
 
 
@@ -682,16 +686,14 @@ class RunPipelineWorker(QtCore.QRunnable):
 
             run_id = self._find_run_id(payload)
             build_url = self._build_history_url(run_id) if run_id else ""
-            images = ["", ""]
-            if run_id:
-                detail_payloads = self._fetch_run_details(session, run_id)
-                final_images = self._fetch_final_images(session, run_id, detail_payloads)
-                images = [final_images.get("x86", ""), final_images.get("arm", "")]
 
             summary = json.dumps(payload, ensure_ascii=False)
             if run_id:
                 summary = f"已触发 runId={run_id}; {summary}"
-            self.signals.run_finished.emit(self.row_index, self.history_row, True, summary[:1500], images, build_url)
+            self.signals.run_finished.emit(self.row_index, self.history_row, True, summary[:1500], [], build_url)
+
+            if run_id:
+                self._poll_final_images(session, run_id)
         except Exception as exc:
             self.signals.run_finished.emit(self.row_index, self.history_row, False, f"执行异常: {exc}", [], "")
 
@@ -787,6 +789,39 @@ class RunPipelineWorker(QtCore.QRunnable):
                     LogPage.log(f"[云效调试] 解析 {arch} 镜像: {parsed[arch]}")
                     break
         return final_images
+
+    def _poll_final_images(self, session, run_id):
+        last_images = {"x86": "", "arm": ""}
+        for poll_index in range(IMAGE_LOG_MAX_POLLS):
+            LogPage.log(f"[云效] 获取镜像中({poll_index + 1}/{IMAGE_LOG_MAX_POLLS})")
+            detail_payloads = self._fetch_run_details(session, run_id)
+            final_images = self._fetch_final_images(session, run_id, detail_payloads)
+            for arch in ("x86", "arm"):
+                if final_images.get(arch):
+                    last_images[arch] = final_images[arch]
+
+            if last_images.get("x86") or last_images.get("arm"):
+                self.signals.images_updated.emit(
+                    self.row_index,
+                    self.history_row,
+                    last_images.get("x86", ""),
+                    last_images.get("arm", ""),
+                    "镜像已获取" if last_images.get("x86") and last_images.get("arm") else "部分镜像已获取",
+                )
+
+            if last_images.get("x86") and last_images.get("arm"):
+                return
+
+            if poll_index < IMAGE_LOG_MAX_POLLS - 1:
+                time.sleep(IMAGE_LOG_POLL_INTERVAL_SECONDS)
+
+        self.signals.images_updated.emit(
+            self.row_index,
+            self.history_row,
+            last_images.get("x86", ""),
+            last_images.get("arm", ""),
+            "获取镜像超时",
+        )
 
 
 class YunxiaoPage(QtWidgets.QWidget):
@@ -1142,25 +1177,32 @@ class YunxiaoPage(QtWidgets.QWidget):
                 row_data.get("branch", ""),
             )
             worker.signals.run_finished.connect(self.on_run_finished)
+            worker.signals.images_updated.connect(self.on_images_updated)
             self.thread_pool.start(worker)
 
     @QtCore.pyqtSlot(int, int, bool, str, list, str)
     def on_run_finished(self, row_index, history_row, success, message, images, build_url):
         self.set_commit_status(row_index, "已触发" if success else "失败", success)
         self.commit_table.setItem(row_index, 9, build_url_item(build_url))
-        x86_image = images[0] if len(images) > 0 else ""
-        arm_image = images[1] if len(images) > 1 else ""
-        self.update_history_row(history_row, "已触发" if success else "失败", build_url, x86_image, arm_image, message)
+        self.update_history_row(history_row, "已触发" if success else "失败", build_url, "", "", message)
         if success:
             LogPage.log(f"[云效] 执行成功: {message}")
             if build_url:
                 LogPage.log(f"[云效] 构建地址: {build_url}")
-            if x86_image:
-                LogPage.log(f"[云效] x86镜像: {x86_image}")
-            if arm_image:
-                LogPage.log(f"[云效] arm镜像: {arm_image}")
         else:
             LogPage.log(f"[云效] 执行失败: {message}")
+
+    @QtCore.pyqtSlot(int, int, str, str, str)
+    def on_images_updated(self, row_index, history_row, x86_image, arm_image, message):
+        if 0 <= history_row < self.history_table.rowCount():
+            self.history_table.setItem(history_row, 8, QtWidgets.QTableWidgetItem(x86_image))
+            self.history_table.setItem(history_row, 9, QtWidgets.QTableWidgetItem(arm_image))
+            self.history_table.setItem(history_row, 10, QtWidgets.QTableWidgetItem(message))
+        if x86_image:
+            LogPage.log(f"[云效] x86镜像: {x86_image}")
+        if arm_image:
+            LogPage.log(f"[云效] arm镜像: {arm_image}")
+        LogPage.log(f"[云效] {message}")
 
     def add_history_row(self, row_data, status, build_url, message):
         row = self.history_table.rowCount()

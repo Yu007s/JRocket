@@ -128,21 +128,29 @@ def match_pipeline(remote_url, repo_name, manual_mappings, automatic_mappings):
     return "", ""
 
 
+def normalize_branch_name(branch):
+    branch = (branch or "").strip()
+    for prefix in ("remotes/origin/", "origin/"):
+        if branch.startswith(prefix):
+            return branch[len(prefix):]
+    return branch
+
+
 def branch_for_commit(repo_path, short_hash):
     try:
         output = run_git(repo_path, ["branch", "--all", "--contains", short_hash, "--format=%(refname:short)"])
-        branches = [line.strip() for line in output.splitlines() if line.strip()]
+        branches = [normalize_branch_name(line.strip()) for line in output.splitlines() if line.strip()]
         for branch in branches:
             if not branch.startswith("remotes/") and branch != "HEAD":
                 return branch
         for branch in branches:
-            if branch.startswith("remotes/origin/"):
-                return branch.replace("remotes/origin/", "", 1)
+            if branch.startswith("origin/"):
+                return normalize_branch_name(branch)
         if branches:
-            return branches[0].replace("remotes/origin/", "", 1)
+            return normalize_branch_name(branches[0])
     except Exception:
         pass
-    return run_git(repo_path, ["rev-parse", "--abbrev-ref", "HEAD"])
+    return normalize_branch_name(run_git(repo_path, ["rev-parse", "--abbrev-ref", "HEAD"]))
 
 
 def collect_strings(value):
@@ -464,6 +472,31 @@ class CopyableTableWidget(QtWidgets.QTableWidget):
         QtWidgets.QApplication.clipboard().setText("\n".join(lines))
 
 
+def table_item_text(item):
+    if not item:
+        return ""
+    return item.text().strip()
+
+
+def build_url_item(url):
+    item = QtWidgets.QTableWidgetItem(url)
+    if url:
+        item.setForeground(QtGui.QBrush(QtGui.QColor("#0969da")))
+        font = item.font()
+        font.setUnderline(True)
+        item.setFont(font)
+        item.setToolTip("双击打开构建地址")
+    return item
+
+
+def open_url_from_table_item(item):
+    if not item:
+        return
+    url = table_item_text(item)
+    if url.startswith(("http://", "https://")):
+        QtGui.QDesktopServices.openUrl(QtCore.QUrl(url))
+
+
 class FetchPipelineMappingsWorker(QtCore.QRunnable):
     def __init__(self, org_url, token, roots):
         super().__init__()
@@ -557,7 +590,7 @@ class RunPipelineWorker(QtCore.QRunnable):
         self.token = token
         self.pipeline_id = pipeline_id
         self.remote_url = remote_url
-        self.branch = branch
+        self.branch = normalize_branch_name(branch)
         self.timeout = timeout
         self.signals = YunxiaoSignals()
 
@@ -747,21 +780,21 @@ class YunxiaoPage(QtWidgets.QWidget):
         action_buttons.addWidget(self.run_all_btn)
         layout.addLayout(action_buttons)
 
-        self.commit_table = CopyableTableWidget(0, 11)
-        self.commit_table.setHorizontalHeaderLabels(["时间", "工作区", "仓库", "分支", "提交", "作者", "流水线", "来源", "状态", "构建地址", "镜像地址"])
+        self.commit_table = CopyableTableWidget(0, 10)
+        self.commit_table.setHorizontalHeaderLabels(["时间", "工作区", "仓库", "分支", "提交", "作者", "流水线", "来源", "状态", "构建地址"])
         self.commit_table.setColumnWidth(0, 170)
         self.commit_table.setColumnWidth(2, 170)
         self.commit_table.setColumnWidth(8, 110)
         self.commit_table.setColumnWidth(9, 360)
-        self.commit_table.setColumnWidth(10, 260)
         self.commit_table.horizontalHeader().setStretchLastSection(True)
-        self.commit_table.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectRows)
+        self.commit_table.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectItems)
         self.commit_table.setEditTriggers(QtWidgets.QAbstractItemView.NoEditTriggers)
         layout.addWidget(self.commit_table)
 
         self.scan_btn.clicked.connect(self.scan_commits)
         self.run_selected_btn.clicked.connect(self.run_selected)
         self.run_all_btn.clicked.connect(self.run_all_matched)
+        self.commit_table.itemDoubleClicked.connect(self.open_commit_build_url)
 
     def _build_history_tab(self):
         layout = QtWidgets.QVBoxLayout(self.history_tab)
@@ -771,20 +804,20 @@ class YunxiaoPage(QtWidgets.QWidget):
         button_layout.addWidget(self.clear_history_btn)
         layout.addLayout(button_layout)
 
-        self.history_table = CopyableTableWidget(0, 10)
-        self.history_table.setHorizontalHeaderLabels(["执行时间", "仓库", "分支", "提交", "流水线", "来源", "状态", "构建地址", "镜像地址", "返回信息"])
+        self.history_table = CopyableTableWidget(0, 9)
+        self.history_table.setHorizontalHeaderLabels(["执行时间", "仓库", "分支", "提交", "流水线", "来源", "状态", "构建地址", "返回信息"])
         self.history_table.setColumnWidth(0, 170)
         self.history_table.setColumnWidth(1, 190)
         self.history_table.setColumnWidth(3, 220)
         self.history_table.setColumnWidth(7, 360)
-        self.history_table.setColumnWidth(8, 260)
-        self.history_table.setColumnWidth(9, 420)
+        self.history_table.setColumnWidth(8, 420)
         self.history_table.horizontalHeader().setStretchLastSection(True)
-        self.history_table.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectRows)
+        self.history_table.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectItems)
         self.history_table.setEditTriggers(QtWidgets.QAbstractItemView.NoEditTriggers)
         layout.addWidget(self.history_table)
 
         self.clear_history_btn.clicked.connect(lambda: self.history_table.setRowCount(0))
+        self.history_table.itemDoubleClicked.connect(self.open_history_build_url)
 
     def load_config(self):
         os.makedirs(os.path.dirname(CONFIG_PATH), exist_ok=True)
@@ -945,7 +978,6 @@ class YunxiaoPage(QtWidgets.QWidget):
                 row_data.get("pipeline_source", ""),
                 "待执行" if row_data.get("pipeline_id") else "缺少映射",
                 "",
-                "",
             ]
             for col, value in enumerate(values):
                 self.commit_table.setItem(row, col, QtWidgets.QTableWidgetItem(value))
@@ -960,6 +992,14 @@ class YunxiaoPage(QtWidgets.QWidget):
             QtWidgets.QMessageBox.warning(self, "云效", "请先选择要执行的提交行")
             return
         self.run_rows(rows)
+
+    def open_commit_build_url(self, item):
+        if item.column() == 9:
+            open_url_from_table_item(item)
+
+    def open_history_build_url(self, item):
+        if item.column() == 7:
+            open_url_from_table_item(item)
 
     def run_all_matched(self):
         rows = []
@@ -987,7 +1027,7 @@ class YunxiaoPage(QtWidgets.QWidget):
                 self.set_commit_status(row_index, "缺少流水线映射", False)
                 continue
             self.set_commit_status(row_index, "执行中...", None)
-            history_row = self.add_history_row(row_data, "执行中", "", "", "")
+            history_row = self.add_history_row(row_data, "执行中", "", "")
             LogPage.log(
                 f"[云效] 触发流水线 pipeline={pipeline_id} repo={row_data.get('repo_name')} branch={row_data.get('branch')}"
             )
@@ -1006,20 +1046,16 @@ class YunxiaoPage(QtWidgets.QWidget):
     @QtCore.pyqtSlot(int, int, bool, str, list, str)
     def on_run_finished(self, row_index, history_row, success, message, images, build_url):
         self.set_commit_status(row_index, "已触发" if success else "失败", success)
-        image_text = "\n".join(images)
-        self.commit_table.setItem(row_index, 9, QtWidgets.QTableWidgetItem(build_url))
-        self.commit_table.setItem(row_index, 10, QtWidgets.QTableWidgetItem(image_text))
-        self.update_history_row(history_row, "已触发" if success else "失败", build_url, image_text, message)
+        self.commit_table.setItem(row_index, 9, build_url_item(build_url))
+        self.update_history_row(history_row, "已触发" if success else "失败", build_url, message)
         if success:
             LogPage.log(f"[云效] 执行成功: {message}")
             if build_url:
                 LogPage.log(f"[云效] 构建地址: {build_url}")
-            if images:
-                LogPage.log("[云效] 镜像地址:\n" + image_text)
         else:
             LogPage.log(f"[云效] 执行失败: {message}")
 
-    def add_history_row(self, row_data, status, build_url, image_text, message):
+    def add_history_row(self, row_data, status, build_url, message):
         row = self.history_table.rowCount()
         self.history_table.insertRow(row)
         values = [
@@ -1031,20 +1067,21 @@ class YunxiaoPage(QtWidgets.QWidget):
             row_data.get("pipeline_source", ""),
             status,
             build_url,
-            image_text,
             message,
         ]
         for col, value in enumerate(values):
-            self.history_table.setItem(row, col, QtWidgets.QTableWidgetItem(value))
+            if col == 7:
+                self.history_table.setItem(row, col, build_url_item(value))
+            else:
+                self.history_table.setItem(row, col, QtWidgets.QTableWidgetItem(value))
         return row
 
-    def update_history_row(self, row, status, build_url, image_text, message):
+    def update_history_row(self, row, status, build_url, message):
         if row < 0 or row >= self.history_table.rowCount():
             return
         self.history_table.setItem(row, 6, QtWidgets.QTableWidgetItem(status))
-        self.history_table.setItem(row, 7, QtWidgets.QTableWidgetItem(build_url))
-        self.history_table.setItem(row, 8, QtWidgets.QTableWidgetItem(image_text))
-        self.history_table.setItem(row, 9, QtWidgets.QTableWidgetItem(message))
+        self.history_table.setItem(row, 7, build_url_item(build_url))
+        self.history_table.setItem(row, 8, QtWidgets.QTableWidgetItem(message))
 
     def set_commit_status(self, row_index, text, success):
         item = QtWidgets.QTableWidgetItem(text)

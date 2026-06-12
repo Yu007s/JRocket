@@ -49,3 +49,10 @@ curl -X POST \
   -H "Content-Type: application/json" \
   -H "x-yunxiao-token: ${YUNXIAO_TOKEN}" \
   -d '{"params":"{\"runningBranchs\":{\"https://sovell-cn-shanghai.devops.aliyuncs.com/codeup/intell-menu/sovell-demeter.git\":\"stable-v5.0.15\"},\"comment\":\"run stable-v5.0.15\"}"}'
+
+
+#获取构建打印内容
+ curl -X 'GET' \
+>   'https://sovell-cn-shanghai.devops.aliyuncs.com/oapi/v1/flow/pipelines/1397928/runs/38/job/68535043/log' \
+>   -H 'Content-Type: application/json' \
+>   -H "x-yunxiao-token: ${YUNXIAO_TOKEN}"

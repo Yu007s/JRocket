@@ -61,15 +61,27 @@ def normalize_remote_url(remote_url):
     return remote_url
 
 
+def normalize_yunxiao_codeup_url(remote_url):
+    remote_url = normalize_remote_url(remote_url)
+    parsed = urlparse(remote_url)
+    if not parsed.scheme or not parsed.netloc:
+        return remote_url
+    path = parsed.path
+    if "devops.aliyuncs.com" in parsed.netloc and path.startswith("/codeup/sovell/"):
+        path = path.replace("/codeup/sovell/", "/codeup/", 1)
+        return parsed._replace(path=path).geturl()
+    return remote_url
+
+
 def normalize_for_match(value):
-    value = normalize_remote_url(value or "").lower().rstrip("/")
+    value = normalize_yunxiao_codeup_url(value or "").lower().rstrip("/")
     if value.endswith(".git"):
         value = value[:-4]
     return value
 
 
 def repo_path_from_remote(remote_url):
-    normalized = normalize_remote_url(remote_url)
+    normalized = normalize_yunxiao_codeup_url(remote_url)
     parsed = urlparse(normalized)
     path = parsed.path.lstrip("/") if parsed.path else normalized
     path = path.lower().rstrip("/")
@@ -216,7 +228,7 @@ def extract_repo_refs(item):
             refs.append(text)
     cleaned = []
     for ref in refs:
-        ref = normalize_remote_url(ref.rstrip(".,;)'\"]"))
+        ref = normalize_yunxiao_codeup_url(ref.rstrip(".,;)'\"]"))
         if ref not in cleaned:
             cleaned.append(ref)
     return cleaned
@@ -265,7 +277,7 @@ def collect_local_repositories(roots):
             repo = current
             dirs[:] = []
             try:
-                remote_url = normalize_remote_url(run_git(repo, ["remote", "get-url", "origin"]))
+                remote_url = normalize_yunxiao_codeup_url(run_git(repo, ["remote", "get-url", "origin"]))
                 repo_name = os.path.basename(repo)
                 key = normalize_for_match(remote_url)
                 if key in seen:
@@ -540,7 +552,7 @@ class ScanCommitsWorker(QtCore.QRunnable):
                 try:
                     repo_name = os.path.basename(repo)
                     workspace = os.path.basename(os.path.dirname(repo))
-                    remote_url = normalize_remote_url(run_git(repo, ["remote", "get-url", "origin"]))
+                    remote_url = normalize_yunxiao_codeup_url(run_git(repo, ["remote", "get-url", "origin"]))
                     pipeline_id, pipeline_source = match_pipeline(
                         remote_url,
                         repo_name,

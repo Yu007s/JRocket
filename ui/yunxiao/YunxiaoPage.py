@@ -452,6 +452,52 @@ def extract_image_addresses(payload):
     return cleaned
 
 
+def extract_final_acr_images(log_text):
+    result = {"x86": "", "arm": ""}
+    repository = ""
+    digest_tags = []
+    for line in (log_text or "").splitlines():
+        repo_match = re.search(r"The push refers to repository \[([^\]]+)\]", line)
+        if repo_match:
+            repository = repo_match.group(1).strip()
+        tag_match = re.search(r"\b([A-Za-z0-9_.-]+\.(?:x86_64|aarch64|arm64|arm)):\s+digest:\s+sha256:", line)
+        if tag_match:
+            digest_tags.append(tag_match.group(1).strip())
+
+    if not repository:
+        return result
+
+    for tag in digest_tags:
+        image = f"{repository}:{tag}"
+        if tag.endswith("x86_64"):
+            result["x86"] = image
+        elif tag.endswith(("aarch64", "arm64", "arm")):
+            result["arm"] = image
+    return result
+
+
+def collect_acr_job_ids(payload):
+    jobs = {"x86": [], "arm": []}
+
+    def walk(node):
+        if isinstance(node, dict):
+            name = str(node.get("name") or node.get("ENGINE_TASK_NAME") or "")
+            job_id = node.get("id")
+            if job_id and "镜像构建并推送至ACR" in name:
+                if "x86" in name:
+                    jobs["x86"].append(str(job_id))
+                elif "arm" in name:
+                    jobs["arm"].append(str(job_id))
+            for child in node.values():
+                walk(child)
+        elif isinstance(node, list):
+            for child in node:
+                walk(child)
+
+    walk(payload)
+    return {key: list(dict.fromkeys(value)) for key, value in jobs.items()}
+
+
 class YunxiaoSignals(QtCore.QObject):
     scan_finished = QtCore.pyqtSignal(list, str)
     run_finished = QtCore.pyqtSignal(int, int, bool, str, list, str)
@@ -634,13 +680,13 @@ class RunPipelineWorker(QtCore.QRunnable):
                 )
                 return
 
-            images = extract_image_addresses(payload)
             run_id = self._find_run_id(payload)
             build_url = self._build_history_url(run_id) if run_id else ""
+            images = ["", ""]
             if run_id:
                 detail_payloads = self._fetch_run_details(session, run_id)
-                for item in detail_payloads:
-                    images.extend(img for img in extract_image_addresses(item) if img not in images)
+                final_images = self._fetch_final_images(session, run_id, detail_payloads)
+                images = [final_images.get("x86", ""), final_images.get("arm", "")]
 
             summary = json.dumps(payload, ensure_ascii=False)
             if run_id:
@@ -700,6 +746,47 @@ class RunPipelineWorker(QtCore.QRunnable):
             except Exception:
                 continue
         return payloads
+
+    def _fetch_job_log(self, session, run_id, job_id):
+        url = f"{self.org_url}/oapi/v1/flow/pipelines/{self.pipeline_id}/runs/{run_id}/job/{job_id}/log"
+        try:
+            response = session.get(
+                url,
+                headers={"Content-Type": "application/json", "x-yunxiao-token": self.token},
+                timeout=self.timeout,
+            )
+            LogPage.log(f"[云效调试] 查询构建日志 job={job_id} HTTP {response.status_code}: {url}")
+            if not (200 <= response.status_code < 300):
+                LogPage.log(f"[云效调试] 构建日志返回: {response.text[:800]}")
+                return ""
+            return response.text
+        except Exception as exc:
+            LogPage.log(f"[云效调试] 查询构建日志异常 job={job_id}: {exc}")
+            return ""
+
+    def _fetch_final_images(self, session, run_id, detail_payloads):
+        job_ids = {"x86": [], "arm": []}
+        for payload in detail_payloads:
+            collected = collect_acr_job_ids(payload)
+            for arch in ("x86", "arm"):
+                for job_id in collected.get(arch, []):
+                    if job_id not in job_ids[arch]:
+                        job_ids[arch].append(job_id)
+        LogPage.log(
+            "[云效调试] ACR jobId: "
+            f"x86={','.join(job_ids['x86']) or '无'} arm={','.join(job_ids['arm']) or '无'}"
+        )
+
+        final_images = {"x86": "", "arm": ""}
+        for arch in ("x86", "arm"):
+            for job_id in job_ids[arch]:
+                log_text = self._fetch_job_log(session, run_id, job_id)
+                parsed = extract_final_acr_images(log_text)
+                if parsed.get(arch):
+                    final_images[arch] = parsed[arch]
+                    LogPage.log(f"[云效调试] 解析 {arch} 镜像: {parsed[arch]}")
+                    break
+        return final_images
 
 
 class YunxiaoPage(QtWidgets.QWidget):
@@ -816,13 +903,15 @@ class YunxiaoPage(QtWidgets.QWidget):
         button_layout.addWidget(self.clear_history_btn)
         layout.addLayout(button_layout)
 
-        self.history_table = CopyableTableWidget(0, 9)
-        self.history_table.setHorizontalHeaderLabels(["执行时间", "仓库", "分支", "提交", "流水线", "来源", "状态", "构建地址", "返回信息"])
+        self.history_table = CopyableTableWidget(0, 11)
+        self.history_table.setHorizontalHeaderLabels(["执行时间", "仓库", "分支", "提交", "流水线", "来源", "状态", "构建地址", "x86镜像", "arm镜像", "返回信息"])
         self.history_table.setColumnWidth(0, 170)
         self.history_table.setColumnWidth(1, 190)
         self.history_table.setColumnWidth(3, 220)
         self.history_table.setColumnWidth(7, 360)
         self.history_table.setColumnWidth(8, 420)
+        self.history_table.setColumnWidth(9, 420)
+        self.history_table.setColumnWidth(10, 420)
         self.history_table.horizontalHeader().setStretchLastSection(True)
         self.history_table.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectItems)
         self.history_table.setEditTriggers(QtWidgets.QAbstractItemView.NoEditTriggers)
@@ -1059,11 +1148,17 @@ class YunxiaoPage(QtWidgets.QWidget):
     def on_run_finished(self, row_index, history_row, success, message, images, build_url):
         self.set_commit_status(row_index, "已触发" if success else "失败", success)
         self.commit_table.setItem(row_index, 9, build_url_item(build_url))
-        self.update_history_row(history_row, "已触发" if success else "失败", build_url, message)
+        x86_image = images[0] if len(images) > 0 else ""
+        arm_image = images[1] if len(images) > 1 else ""
+        self.update_history_row(history_row, "已触发" if success else "失败", build_url, x86_image, arm_image, message)
         if success:
             LogPage.log(f"[云效] 执行成功: {message}")
             if build_url:
                 LogPage.log(f"[云效] 构建地址: {build_url}")
+            if x86_image:
+                LogPage.log(f"[云效] x86镜像: {x86_image}")
+            if arm_image:
+                LogPage.log(f"[云效] arm镜像: {arm_image}")
         else:
             LogPage.log(f"[云效] 执行失败: {message}")
 
@@ -1079,6 +1174,8 @@ class YunxiaoPage(QtWidgets.QWidget):
             row_data.get("pipeline_source", ""),
             status,
             build_url,
+            "",
+            "",
             message,
         ]
         for col, value in enumerate(values):
@@ -1088,12 +1185,14 @@ class YunxiaoPage(QtWidgets.QWidget):
                 self.history_table.setItem(row, col, QtWidgets.QTableWidgetItem(value))
         return row
 
-    def update_history_row(self, row, status, build_url, message):
+    def update_history_row(self, row, status, build_url, x86_image, arm_image, message):
         if row < 0 or row >= self.history_table.rowCount():
             return
         self.history_table.setItem(row, 6, QtWidgets.QTableWidgetItem(status))
         self.history_table.setItem(row, 7, build_url_item(build_url))
-        self.history_table.setItem(row, 8, QtWidgets.QTableWidgetItem(message))
+        self.history_table.setItem(row, 8, QtWidgets.QTableWidgetItem(x86_image))
+        self.history_table.setItem(row, 9, QtWidgets.QTableWidgetItem(arm_image))
+        self.history_table.setItem(row, 10, QtWidgets.QTableWidgetItem(message))
 
     def set_commit_status(self, row_index, text, success):
         item = QtWidgets.QTableWidgetItem(text)

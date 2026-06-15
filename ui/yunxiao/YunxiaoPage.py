@@ -1148,6 +1148,15 @@ class YunxiaoPage(QtWidgets.QWidget):
         if not rows:
             QtWidgets.QMessageBox.warning(self, "云效", "没有已匹配流水线的提交")
             return
+        reply = QtWidgets.QMessageBox.question(
+            self,
+            "确认执行",
+            f"将执行 {len(rows)} 条已匹配流水线，确定继续吗？",
+            QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
+            QtWidgets.QMessageBox.No,
+        )
+        if reply != QtWidgets.QMessageBox.Yes:
+            return
         self.run_rows(rows)
 
     def run_rows(self, row_indexes):

@@ -14,6 +14,7 @@ from ui.log_out.LogPage import LogPage
 
 
 CONFIG_PATH = os.path.join(os.path.expanduser("~"), "JRocket", "yunxiao_config.json")
+HISTORY_PATH = os.path.join(os.path.expanduser("~"), "JRocket", "yunxiao_history.json")
 TOKEN_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "yunxiaotoken.txt")
 DEFAULT_ORG_URL = "https://sovell-cn-shanghai.devops.aliyuncs.com"
 DEFAULT_ROOTS = [
@@ -831,6 +832,7 @@ class YunxiaoPage(QtWidgets.QWidget):
         self.rows = []
         self._build_ui()
         self.load_config()
+        self.load_history()
 
     def _build_ui(self):
         layout = QtWidgets.QVBoxLayout(self)
@@ -952,8 +954,56 @@ class YunxiaoPage(QtWidgets.QWidget):
         self.history_table.setEditTriggers(QtWidgets.QAbstractItemView.NoEditTriggers)
         layout.addWidget(self.history_table)
 
-        self.clear_history_btn.clicked.connect(lambda: self.history_table.setRowCount(0))
+        self.clear_history_btn.clicked.connect(self.clear_history)
         self.history_table.itemDoubleClicked.connect(self.open_history_build_url)
+
+    def history_headers(self):
+        return [
+            self.history_table.horizontalHeaderItem(col).text()
+            for col in range(self.history_table.columnCount())
+        ]
+
+    def history_row_values(self, row):
+        return [
+            table_item_text(self.history_table.item(row, col))
+            for col in range(self.history_table.columnCount())
+        ]
+
+    def save_history(self):
+        os.makedirs(os.path.dirname(HISTORY_PATH), exist_ok=True)
+        headers = self.history_headers()
+        rows = []
+        for row in range(self.history_table.rowCount()):
+            values = self.history_row_values(row)
+            if any(values):
+                rows.append(dict(zip(headers, values)))
+        with open(HISTORY_PATH, "w", encoding="utf-8") as file:
+            json.dump(rows, file, ensure_ascii=False, indent=4)
+
+    def load_history(self):
+        if not os.path.exists(HISTORY_PATH):
+            return
+        try:
+            with open(HISTORY_PATH, "r", encoding="utf-8") as file:
+                rows = json.load(file)
+        except Exception as exc:
+            LogPage.log(f"[云效] 读取执行历史失败: {exc}")
+            return
+        headers = self.history_headers()
+        self.history_table.setRowCount(0)
+        for record in rows:
+            row = self.history_table.rowCount()
+            self.history_table.insertRow(row)
+            values = [str(record.get(header, "")) for header in headers]
+            for col, value in enumerate(values):
+                if col == 7:
+                    self.history_table.setItem(row, col, build_url_item(value))
+                else:
+                    self.history_table.setItem(row, col, QtWidgets.QTableWidgetItem(value))
+
+    def clear_history(self):
+        self.history_table.setRowCount(0)
+        self.save_history()
 
     def load_config(self):
         os.makedirs(os.path.dirname(CONFIG_PATH), exist_ok=True)
@@ -1207,6 +1257,7 @@ class YunxiaoPage(QtWidgets.QWidget):
             self.history_table.setItem(history_row, 8, QtWidgets.QTableWidgetItem(x86_image))
             self.history_table.setItem(history_row, 9, QtWidgets.QTableWidgetItem(arm_image))
             self.history_table.setItem(history_row, 10, QtWidgets.QTableWidgetItem(message))
+            self.save_history()
         if x86_image:
             LogPage.log(f"[云效] x86镜像: {x86_image}")
         if arm_image:
@@ -1234,6 +1285,7 @@ class YunxiaoPage(QtWidgets.QWidget):
                 self.history_table.setItem(row, col, build_url_item(value))
             else:
                 self.history_table.setItem(row, col, QtWidgets.QTableWidgetItem(value))
+        self.save_history()
         return row
 
     def update_history_row(self, row, status, build_url, x86_image, arm_image, message):
@@ -1244,6 +1296,7 @@ class YunxiaoPage(QtWidgets.QWidget):
         self.history_table.setItem(row, 8, QtWidgets.QTableWidgetItem(x86_image))
         self.history_table.setItem(row, 9, QtWidgets.QTableWidgetItem(arm_image))
         self.history_table.setItem(row, 10, QtWidgets.QTableWidgetItem(message))
+        self.save_history()
 
     def set_commit_status(self, row_index, text, success):
         item = QtWidgets.QTableWidgetItem(text)

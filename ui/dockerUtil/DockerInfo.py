@@ -21,8 +21,8 @@ class DockerInfo(QtWidgets.QWidget):
         layout.addWidget(self.refresh_btn)
         layout.addWidget(self.text_box)
 
-        # 启动时自动加载一次
-        self.load_docker_info()
+        # 启动后再加载，避免 Docker 命令阻塞主窗口显示。
+        QtCore.QTimer.singleShot(300, self.load_docker_info)
 
     def load_docker_info(self):
         """执行 'dockerUtil info' 并显示结果"""
@@ -34,12 +34,22 @@ class DockerInfo(QtWidgets.QWidget):
                 stderr=subprocess.PIPE,
                 text=True
             )
-            stdout, stderr = process.communicate()
+            stdout, stderr = process.communicate(timeout=3)
 
             if stdout:
                 self.text_box.setPlainText(stdout)
             elif stderr:
                 self.text_box.setPlainText("错误信息：\n" + stderr)
+            else:
+                self.text_box.setPlainText("未获取到 Docker 信息。")
+
+        except subprocess.TimeoutExpired:
+            try:
+                process.kill()
+                process.communicate(timeout=1)
+            except Exception:
+                pass
+            self.text_box.setPlainText("获取 Docker 信息超时，请确认 Docker Desktop 是否已启动。")
 
         except Exception as e:
             self.text_box.setPlainText(f"执行失败：\n{e}")

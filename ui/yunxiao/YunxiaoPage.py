@@ -169,6 +169,21 @@ def branch_for_commit(repo_path, short_hash):
     return normalize_branch_name(run_git(repo_path, ["rev-parse", "--abbrev-ref", "HEAD"]))
 
 
+def repo_has_branch(repo_path, branch):
+    branch = normalize_branch_name(branch)
+    if not branch:
+        return False
+    for ref in (f"refs/heads/{branch}", f"refs/remotes/origin/{branch}"):
+        process = subprocess.run(
+            ["git", "-C", repo_path, "show-ref", "--verify", "--quiet", ref],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        if process.returncode == 0:
+            return True
+    return False
+
+
 def collect_strings(value):
     if isinstance(value, str):
         return [value]
@@ -911,9 +926,14 @@ class YunxiaoPage(QtWidgets.QWidget):
         self.scan_btn = QtWidgets.QPushButton("扫描最近提交")
         self.run_selected_btn = QtWidgets.QPushButton("执行选中流水线")
         self.run_all_btn = QtWidgets.QPushButton("执行全部已匹配流水线")
+        self.branch_run_input = QtWidgets.QLineEdit()
+        self.branch_run_input.setPlaceholderText("分支名")
+        self.run_branch_btn = QtWidgets.QPushButton("一键执行该分支")
         action_buttons.addWidget(self.scan_btn)
         action_buttons.addWidget(self.run_selected_btn)
         action_buttons.addWidget(self.run_all_btn)
+        action_buttons.addWidget(self.branch_run_input)
+        action_buttons.addWidget(self.run_branch_btn)
         layout.addLayout(action_buttons)
 
         self.commit_table = CopyableTableWidget(0, 10)
@@ -930,6 +950,7 @@ class YunxiaoPage(QtWidgets.QWidget):
         self.scan_btn.clicked.connect(self.scan_commits)
         self.run_selected_btn.clicked.connect(self.run_selected)
         self.run_all_btn.clicked.connect(self.run_all_matched)
+        self.run_branch_btn.clicked.connect(self.run_branch_if_exists)
         self.commit_table.itemDoubleClicked.connect(self.open_commit_build_url)
 
     def _build_history_tab(self):
@@ -1208,6 +1229,100 @@ class YunxiaoPage(QtWidgets.QWidget):
         if reply != QtWidgets.QMessageBox.Yes:
             return
         self.run_rows(rows)
+
+    def run_branch_if_exists(self):
+        branch = normalize_branch_name(self.branch_run_input.text())
+        if not branch:
+            QtWidgets.QMessageBox.warning(self, "云效", "请输入分支名")
+            return
+
+        rows = []
+        errors = []
+        seen = set()
+        for root in self.roots():
+            if not os.path.isdir(root):
+                errors.append(f"目录不存在: {root}")
+                continue
+            for current, dirs, _files in os.walk(root):
+                if ".git" not in dirs:
+                    if current.count(os.sep) - root.count(os.sep) >= 2:
+                        dirs[:] = []
+                    continue
+                repo = current
+                dirs[:] = []
+                try:
+                    if not repo_has_branch(repo, branch):
+                        continue
+                    repo_name = os.path.basename(repo)
+                    workspace = os.path.basename(os.path.dirname(repo))
+                    remote_url = normalize_yunxiao_codeup_url(run_git(repo, ["remote", "get-url", "origin"]))
+                    key = (normalize_for_match(remote_url), branch)
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    pipeline_id, pipeline_source = match_pipeline(
+                        remote_url,
+                        repo_name,
+                        self.manual_mappings(),
+                        self.automatic_mappings(),
+                    )
+                    rows.append(
+                        {
+                            "committed_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                            "workspace": workspace,
+                            "repo_name": repo_name,
+                            "repo_path": repo,
+                            "remote_url": remote_url,
+                            "branch": branch,
+                            "short_hash": "",
+                            "author": "",
+                            "subject": "手动指定分支执行",
+                            "pipeline_id": pipeline_id,
+                            "pipeline_source": pipeline_source,
+                        }
+                    )
+                except Exception as exc:
+                    errors.append(f"{repo}: {exc}")
+
+        if errors:
+            LogPage.log("[云效] 分支扫描警告:\n" + "\n".join(errors))
+
+        matched_rows = [row for row in rows if row.get("pipeline_id")]
+        if not matched_rows:
+            QtWidgets.QMessageBox.warning(self, "云效", f"没有找到存在分支且已匹配流水线的项目: {branch}")
+            return
+
+        reply = QtWidgets.QMessageBox.question(
+            self,
+            "确认执行",
+            f"找到 {len(rows)} 个存在分支的项目，其中 {len(matched_rows)} 个已匹配流水线。\n确定执行分支 {branch} 吗？",
+            QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
+            QtWidgets.QMessageBox.No,
+        )
+        if reply != QtWidgets.QMessageBox.Yes:
+            return
+
+        self.rows = rows
+        self.commit_table.setRowCount(0)
+        for row_data in rows:
+            row = self.commit_table.rowCount()
+            self.commit_table.insertRow(row)
+            values = [
+                row_data.get("committed_at", ""),
+                row_data.get("workspace", ""),
+                row_data.get("repo_name", ""),
+                row_data.get("branch", ""),
+                row_data.get("subject", ""),
+                row_data.get("author", ""),
+                row_data.get("pipeline_id", "") or "未匹配",
+                row_data.get("pipeline_source", ""),
+                "待执行" if row_data.get("pipeline_id") else "缺少映射",
+                "",
+            ]
+            for col, value in enumerate(values):
+                self.commit_table.setItem(row, col, QtWidgets.QTableWidgetItem(value))
+
+        self.run_rows([index for index, row in enumerate(self.rows) if row.get("pipeline_id")])
 
     def run_rows(self, row_indexes):
         token = self.token_input.text().strip() or load_yunxiao_token()
